@@ -28,7 +28,9 @@ App (Vercel)  ── POST ──▶  Apps Script (apps-script/horas.gs)  ──�
 
 | Pestaña | Columnas | Quién la mantiene |
 |---|---|---|
-| Personas | email, nombre, area, rol (`empleado` / `gerente` / `admin`), activo, horas_dia | Gerencia |
+| Personas | email, nombre, area, rol (`empleado` / `gerente` / `admin`), activo, regimen | Gerencia |
+| Regimenes | regimen, horas_dia (ej. `Full time` 8, `Part time` 4) | Gerencia |
+| Feriados | fecha, nombre | Gerencia |
 | Proyectos | codigo, nombre, cliente, estado (`activo` / `cerrado`) | Gerencia |
 | Tareas | tarea | Gerencia |
 | Registros | la tabla de salida (abajo) | La app. No editar a mano |
@@ -37,7 +39,22 @@ App (Vercel)  ── POST ──▶  Apps Script (apps-script/horas.gs)  ──�
 - **Sacar a alguien:** destildá `activo`. Sus registros quedan.
 - **Cerrar un proyecto:** `estado` = `cerrado`. Deja de aparecer para cargar y las horas quedan.
 - **Si se pierde un teléfono:** menú **Horas → Cerrar todas las sesiones**. Todos vuelven a entrar con Google.
-- `horas_dia` es la jornada esperada de cada persona (por defecto 8). La usan los días en rojo y el % de cumplimiento.
+- Cada persona tiene un **régimen** (pestaña Regimenes) que fija su jornada en horas por día. Se pueden crear
+  todos los que hagan falta (`Part time 6 h`, etc.). Una persona sin régimen válido cuenta como 8 h.
+- Los **feriados** se cargan a mano en la pestaña Feriados (uno por fila). Ese día no hay jornada.
+
+## Horas extra
+
+Cada día, las horas de una persona completan primero la jornada de su régimen, en el orden en que se
+cargaron; lo que pasa de la jornada es **extra**. Sábados, domingos y feriados no tienen jornada: todo
+es extra. Aplica a todos los regímenes y no necesita aprobación.
+
+Ejemplo, régimen part time de 4 h: carga 3 h en un proyecto y después 3 h en otro → la primera fila
+queda 3 normales, la segunda 1 normal + 2 extra. Si se borra o edita una fila, el día se vuelve a repartir.
+
+La persona lo ve al cargar (aviso en el editor y "N extra" en cada fila) y gerencia en el dashboard
+(indicador de horas extra, grilla agrupada por régimen con "+N", filtro por régimen y horas extra por
+persona). El cumplimiento compara solo las horas normales con la jornada esperada.
 - El rol `admin` (SoyLeo AI) ve el dashboard, pero no se le cuentan horas faltantes.
 
 ## Tabla de salida: Registros
@@ -49,9 +66,11 @@ Una fila por persona, día, proyecto y tarea. Es el contrato con el gestor de pr
 | id | `r_8f3k2m…` | único y estable (lo genera el teléfono) |
 | fecha | 2026-10-12 | día trabajado |
 | email, nombre, area | ana@…, Ana Gómez, Desarrollo de Proyectos | quién trabajó y cargó |
+| regimen | Part time | su régimen al momento de cargar |
 | proyecto_codigo, proyecto_nombre | P-024, Edificio Belgrano | |
 | tarea | Documentación | |
 | horas | 3.5 | decimal |
+| horas_normales, horas_extra | 1.5, 2 | el reparto de esa fila (suman `horas`) |
 | nota | Láminas de carpinterías | opcional |
 | cargado_en | 2026-10-12 18:42:10 | fecha y hora de carga (hora de Argentina) |
 | modificado_en | 2026-10-13 09:10:00 | vacío si nunca se editó |
@@ -74,7 +93,8 @@ cambios y bajas. El dashboard exporta el mismo formato en CSV (coma, UTF-8).
 
 ### Datos que define el estudio
 
-- El equipo: nombre, **email de Google** de cada persona (Gmail o Workspace), área, rol y jornada (`horas_dia`).
+- El equipo: nombre, **email de Google** de cada persona (Gmail o Workspace), área, rol y régimen (full time, part time…).
+- Los regímenes con su jornada diaria y los feriados del año.
   Cada uno entra con ese email; si no está en Personas, la app no lo deja pasar.
 - La lista de proyectos, con código y nombre.
 - Los tipos de tarea (vienen 9 de ejemplo).

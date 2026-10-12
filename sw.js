@@ -1,7 +1,7 @@
 // Service worker: guarda la app en el dispositivo para que abra rápido y sin señal.
 // Solo maneja archivos propios; los pedidos al Apps Script y a Google pasan directo.
 // Al cambiar cualquier archivo de la app, subí VERSION para que los teléfonos tomen la nueva.
-const VERSION = 'horas-v1';
+const VERSION = 'horas-v2';
 const ARCHIVOS = [
   './', 'index.html', 'admin.html', 'manifest.webmanifest',
   'assets/estilos.css', 'assets/config.js', 'assets/api.js', 'assets/carga.js', 'assets/admin.js',

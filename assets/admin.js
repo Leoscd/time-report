@@ -1,10 +1,11 @@
-// Dashboard de gerencia: quién cargó hoy, horas por persona y día, por proyecto y por tarea,
+// Dashboard de gerencia: quién cargó hoy, horas por persona y día (agrupadas por régimen, con las horas
+// extra aparte), por proyecto y por tarea,
 // detalle y exportación a CSV con las mismas columnas que la pestaña "Registros".
 (() => {
   const H = window.Horas;
   const $ = id => document.getElementById(id);
-  const COLUMNAS = ['id', 'fecha', 'email', 'nombre', 'area', 'proyecto_codigo', 'proyecto_nombre', 'tarea',
-    'horas', 'nota', 'cargado_en', 'modificado_en', 'estado'];
+  const COLUMNAS = ['id', 'fecha', 'email', 'nombre', 'area', 'regimen', 'proyecto_codigo', 'proyecto_nombre', 'tarea',
+    'horas', 'horas_normales', 'horas_extra', 'nota', 'cargado_en', 'modificado_en', 'estado'];
   const MAX_MATRIZ = 31;
 
   let periodo = 'semana';
@@ -74,10 +75,12 @@
     const personas = new Map(datos.personas.map(p => [p.email, p.nombre]));
     const proyectos = new Map(datos.proyectos.map(p => [p.codigo, p.nombre + (p.activo ? '' : ' (cerrado)')]));
     const areas = new Set(datos.personas.map(p => p.area).filter(Boolean));
+    const regimenes = new Set((datos.regimenes || []).map(r => r.regimen).concat(datos.personas.map(p => p.regimen)));
     datos.registros.forEach(r => {
       if (!personas.has(r.email)) personas.set(r.email, r.nombre);
       if (!proyectos.has(r.proyecto_codigo)) proyectos.set(r.proyecto_codigo, r.proyecto_nombre);
       if (r.area) areas.add(r.area);
+      if (r.regimen) regimenes.add(r.regimen);
     });
     const llenar = (id, todas, pares) => {
       const v = $(id).value;
@@ -89,20 +92,27 @@
     llenar('fPersona', 'Todas', [...personas]);
     llenar('fProyecto', 'Todos', [...proyectos].map(([c, n]) => [c, `${c} · ${n}`]));
     llenar('fArea', 'Todas', [...areas].map(a => [a, a]));
+    llenar('fRegimen', 'Todos', [...regimenes].filter(Boolean).map(r => [r, r]));
   }
 
-  const filtro = () => ({ persona: $('fPersona').value, proyecto: $('fProyecto').value, area: $('fArea').value });
+  const filtro = () => ({ persona: $('fPersona').value, proyecto: $('fProyecto').value, area: $('fArea').value, regimen: $('fRegimen').value });
+
+  // El régimen actual de la persona; si ya no está activa, el que tenía al cargar.
+  const regimenDe = r => (datos.personas.find(p => p.email === r.email) || r).regimen;
+  const esFeriado = d => (datos.feriados || []).includes(d);
+  const jornada = (p, d) => (H.esHabil(d) && !esFeriado(d) ? p.horas_dia : 0);
 
   function filas() {
     const f = filtro();
-    return datos.registros.filter(r => (!f.persona || r.email === f.persona)
-      && (!f.proyecto || r.proyecto_codigo === f.proyecto) && (!f.area || r.area === f.area));
+    return datos.registros.filter(r => (!f.persona || r.email === f.persona) && (!f.proyecto || r.proyecto_codigo === f.proyecto)
+      && (!f.area || r.area === f.area) && (!f.regimen || regimenDe(r) === f.regimen));
   }
 
   // Personas a las que se les espera carga: activas, sin el rol admin (SoyLeo AI), según los filtros.
   function controladas() {
     const f = filtro();
-    return datos.personas.filter(p => p.rol !== 'admin' && (!f.persona || p.email === f.persona) && (!f.area || p.area === f.area))
+    return datos.personas.filter(p => p.rol !== 'admin' && (!f.persona || p.email === f.persona)
+      && (!f.area || p.area === f.area) && (!f.regimen || p.regimen === f.regimen))
       .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
   }
 
@@ -113,8 +123,8 @@
     return dias;
   }
 
-  const sumar = (lista, clave) => lista.reduce((m, r) => m.set(clave(r), (m.get(clave(r)) || 0) + Number(r.horas)), new Map());
-  const total = lista => lista.reduce((s, r) => s + Number(r.horas), 0);
+  const sumar = (lista, clave, campo = 'horas') => lista.reduce((m, r) => m.set(clave(r), (m.get(clave(r)) || 0) + Number(r[campo])), new Map());
+  const total = (lista, campo = 'horas') => lista.reduce((s, r) => s + Number(r[campo]), 0);
 
   // ---------- pantalla ----------
 
@@ -123,21 +133,25 @@
     const rs = filas();
     const gente = controladas();
     const dias = diasDelRango();
-    const habiles = dias.filter(H.esHabil);
     const f = filtro();
 
-    // KPIs
+    // KPIs. El cumplimiento compara las horas normales con la jornada esperada (sin fines de semana ni feriados).
     const t = total(rs);
-    const esperado = gente.reduce((s, p) => s + p.horas_dia, 0) * habiles.length;
+    const normales = total(rs, 'horas_normales');
+    const extra = total(rs, 'horas_extra');
+    const esperado = gente.reduce((s, p) => s + dias.reduce((a, d) => a + jornada(p, d), 0), 0);
+    const laborables = dias.filter(d => H.esHabil(d) && !esFeriado(d)).length;
     const conCarga = gente.filter(p => rs.some(r => r.email === p.email)).length;
     const proyectos = new Set(rs.map(r => r.proyecto_codigo)).size;
-    const pct = !f.proyecto && esperado ? Math.round(t / esperado * 100) : null;
+    const pct = !f.proyecto && esperado ? Math.round(normales / esperado * 100) : null;
     $('kpis').innerHTML = [
-      ['Horas cargadas', H.fmtHoras(t), `${rs.length} cargas`],
-      ['Cumplimiento', pct == null ? '—' : pct + ' %', f.proyecto ? 'No aplica con un proyecto elegido' : `de ${H.fmtHoras(esperado)} h esperadas (${habiles.length} días hábiles)`],
-      ['Personas con carga', `${conCarga} de ${gente.length}`, 'en el período'],
-      ['Proyectos con horas', proyectos, f.proyecto ? '' : 'en el período'],
-    ].map(([tt, v, s]) => `<div class="kpi"><div class="t">${tt}</div><div class="v num">${v}</div><div class="s">${H.esc(s)}</div></div>`).join('');
+      ['Horas cargadas', H.fmtHoras(t), `${H.fmtHoras(normales)} normales · ${rs.length} cargas`, ''],
+      ['Horas extra', H.fmtHoras(extra), t ? `${Math.round(extra / t * 100)} % del total` : 'en el período', 'extra'],
+      ['Cumplimiento', pct == null ? '—' : pct + ' %', f.proyecto ? 'No aplica con un proyecto elegido'
+        : `de ${H.fmtHoras(esperado)} h esperadas (${laborables} ${laborables === 1 ? 'día laborable' : 'días laborables'})`, ''],
+      ['Personas con carga', `${conCarga} de ${gente.length}`, 'en el período', ''],
+      ['Proyectos con horas', proyectos, f.proyecto ? '' : 'en el período', ''],
+    ].map(([tt, v, s, c]) => `<div class="kpi ${c}"><div class="t">${tt}</div><div class="v num">${v}</div><div class="s">${H.esc(s)}</div></div>`).join('');
 
     renderHoy(rs, gente);
     renderMatriz(rs, gente, dias);
@@ -149,6 +163,9 @@
     barras('porProyecto', sumar(rs, r => r.proyecto_codigo), c => `${c} · ${nombreProy.get(c) || ''}`);
     barras('porPersona', sumar(rs, r => r.email), e => nombrePers.get(e) || e);
     barras('porTarea', sumar(rs, r => r.tarea), x => x);
+    const extraPersona = new Map([...sumar(rs, r => r.email, 'horas_extra')].filter(([, v]) => v > 0));
+    barras('extraPersona', extraPersona, e => `${nombrePers.get(e) || e} · ${regimenDe({ email: e, regimen: '' })}`, 'extra',
+      'Nadie hizo horas extra en el período.');
 
     renderDetalle(rs);
   }
@@ -162,55 +179,74 @@
     const tarjetas = gente.map(p => {
       const mias = deHoy.filter(r => r.email === p.email);
       const porProy = [...sumar(mias, r => r.proyecto_nombre || r.proyecto_codigo)].sort((a, b) => b[1] - a[1]);
-      return { p, total: total(mias), porProy };
+      return { p, total: total(mias), extra: total(mias, 'horas_extra'), j: jornada(p, h), porProy };
     }).sort((a, b) => (a.total > 0) - (b.total > 0) || a.p.nombre.localeCompare(b.p.nombre, 'es'));
     const cargaron = tarjetas.filter(x => x.total > 0).length;
-    $('hoyResumen').textContent = `Cargaron ${cargaron} de ${tarjetas.length} · ${H.fmtHoras(total(deHoy))} h`;
-    $('personasHoy').innerHTML = tarjetas.map(({ p, total: tt, porProy }) => `
-      <div class="persona-hoy ${tt ? '' : 'falta'}">
+    $('hoyResumen').textContent = `Cargaron ${cargaron} de ${tarjetas.length} · ${H.fmtHoras(total(deHoy))} h`
+      + (total(deHoy, 'horas_extra') ? ` (${H.fmtHoras(total(deHoy, 'horas_extra'))} extra)` : '');
+    $('personasHoy').innerHTML = tarjetas.map(({ p, total: tt, extra, j, porProy }) => `
+      <div class="persona-hoy ${tt || !j ? '' : 'falta'}">
         <div class="cab"><span>${H.esc(p.nombre)}</span>
-          ${tt ? `<span class="num">${H.fmtHoras(tt)} / ${H.fmtHoras(p.horas_dia)} h</span>` : '<span class="etiqueta mala">Sin carga</span>'}</div>
-        <div class="area">${H.esc(p.area)}</div>
-        ${tt ? `<div class="barra"><i style="width:${Math.min(100, tt / p.horas_dia * 100)}%"></i></div>
-        <ul>${porProy.map(([n, hs]) => `<li><span>${H.esc(n)}</span><span class="num">${H.fmtHoras(hs)} h</span></li>`).join('')}</ul>` : ''}
+          ${tt ? `<span class="num">${H.fmtHoras(tt)}${j ? ' / ' + H.fmtHoras(j) : ''} h</span>` : j ? '<span class="etiqueta mala">Sin carga</span>' : ''}</div>
+        <div class="area">${H.esc(p.area)} · ${H.esc(p.regimen)} ${H.fmtHoras(p.horas_dia)} h</div>
+        ${extra ? `<div class="txt-extra" style="font-size:13px">${H.fmtHoras(extra)} h extra</div>` : ''}
+        ${tt && j ? `<div class="barra"><i style="width:${Math.min(100, tt / j * 100)}%"></i></div>` : ''}
+        ${tt ? `<ul>${porProy.map(([n, hs]) => `<li><span>${H.esc(n)}</span><span class="num">${H.fmtHoras(hs)} h</span></li>`).join('')}</ul>` : ''}
       </div>`).join('') || '<p class="muted">No hay personas para mostrar con estos filtros.</p>';
   }
 
+  // Grilla persona × día, agrupada por régimen. Cada celda: horas normales y, aparte, "+N" de horas extra.
   function renderMatriz(rs, gente, dias) {
     const visible = dias.length > 0 && dias.length <= MAX_MATRIZ;
     $('seccionMatriz').classList.toggle('hidden', !visible);
     if (!visible) return;
-    const filasP = gente.map(p => ({ email: p.email, nombre: p.nombre, horas_dia: p.horas_dia }));
+    const filasP = gente.slice();
     rs.forEach(r => {
-      if (!filasP.some(x => x.email === r.email)) filasP.push({ email: r.email, nombre: r.nombre, horas_dia: 8, externa: true });
+      if (!filasP.some(x => x.email === r.email)) {
+        filasP.push({ email: r.email, nombre: r.nombre, regimen: r.regimen || 'Sin régimen', horas_dia: 0, externa: true });
+      }
     });
-    const cab = dias.map(d => `<th class="${H.esHabil(d) ? '' : 'finde'}" title="${H.esc(H.fmtFecha(d))}">
+    filasP.sort((a, b) => a.regimen.localeCompare(b.regimen, 'es') || a.nombre.localeCompare(b.nombre, 'es'));
+    const noLaborable = d => !H.esHabil(d) || esFeriado(d);
+    const cab = dias.map(d => `<th class="${noLaborable(d) ? 'finde' : ''}" title="${H.esc(H.fmtFecha(d) + (esFeriado(d) ? ' (feriado)' : ''))}">
       ${H.fmtFecha(d, { weekday: 'narrow' })}<br>${H.deIso(d).getDate()}</th>`).join('');
+    let grupo = null;
     const cuerpo = filasP.map(p => {
+      let encabezado = '';
+      if (p.regimen !== grupo) {
+        grupo = p.regimen;
+        encabezado = `<tr class="grupo"><td colspan="${dias.length + 3}">${H.esc(p.regimen)}${p.externa ? '' : ` · ${H.fmtHoras(p.horas_dia)} h por día`}</td></tr>`;
+      }
       const mias = rs.filter(r => r.email === p.email);
       const celdas = dias.map(d => {
         const delDia = mias.filter(r => r.fecha === d);
-        const tt = total(delDia);
+        const n = total(delDia, 'horas_normales');
+        const e = total(delDia, 'horas_extra');
+        const j = p.externa ? 0 : jornada(p, d);
         let cls = '';
-        if (tt >= p.horas_dia) cls = 'ok';
-        else if (tt > 0) cls = 'parcial';
-        else if (H.esHabil(d) && !p.externa) cls = 'falta';
-        const titulo = delDia.map(r => `${r.proyecto_nombre}: ${H.fmtHoras(r.horas)} h`).join('\n');
-        return `<td class="${H.esHabil(d) ? '' : 'finde'}"><div class="c num ${cls}" title="${H.esc(titulo)}">${tt ? H.fmtHoras(tt) : '·'}</div></td>`;
+        if (j && n >= j) cls = 'ok';
+        else if (n > 0) cls = 'parcial';
+        else if (j && !e) cls = 'falta';
+        else if (e) cls = 'solo-extra';
+        const titulo = delDia.map(r => `${r.proyecto_nombre}: ${H.fmtHoras(r.horas)} h${r.horas_extra ? ` (${H.fmtHoras(r.horas_extra)} extra)` : ''}`).join('\n');
+        const texto = (n ? H.fmtHoras(n) : e ? '' : '·') + (e ? `<small class="mas">+${H.fmtHoras(e)}</small>` : '');
+        return `<td class="${noLaborable(d) ? 'finde' : ''}"><div class="c num ${cls}" title="${H.esc(titulo)}">${texto}</div></td>`;
       }).join('');
-      return `<tr><td>${H.esc(p.nombre)}</td>${celdas}<td class="num"><strong>${H.fmtHoras(total(mias))}</strong></td></tr>`;
+      const ex = total(mias, 'horas_extra');
+      return `${encabezado}<tr><td>${H.esc(p.nombre)}</td>${celdas}<td class="num"><strong>${H.fmtHoras(total(mias))}</strong></td>
+        <td class="num txt-extra">${ex ? H.fmtHoras(ex) : ''}</td></tr>`;
     }).join('');
-    $('matriz').innerHTML = `<thead><tr><th>Persona</th>${cab}<th>Total</th></tr></thead><tbody>${cuerpo}</tbody>`;
+    $('matriz').innerHTML = `<thead><tr><th>Persona</th>${cab}<th>Total</th><th>Extra</th></tr></thead><tbody>${cuerpo}</tbody>`;
   }
 
-  function barras(id, mapa, etiqueta) {
+  function barras(id, mapa, etiqueta, clase = '', vacio = 'Sin horas en el período.') {
     const items = [...mapa].sort((a, b) => b[1] - a[1]).slice(0, 12);
     const max = items.length ? items[0][1] : 0;
     $(id).innerHTML = items.map(([k, v]) => `
-      <div class="item"><span title="${H.esc(etiqueta(k))}">${H.esc(etiqueta(k))}</span>
+      <div class="item ${clase}"><span title="${H.esc(etiqueta(k))}">${H.esc(etiqueta(k))}</span>
         <span class="pista"><i style="width:${max ? v / max * 100 : 0}%"></i></span>
         <span class="num"><strong>${H.fmtHoras(v)}</strong> h</span></div>`).join('')
-      || '<p class="muted" style="margin:0">Sin horas en el período.</p>';
+      || `<p class="muted" style="margin:0">${vacio}</p>`;
   }
 
   function ordenadas(rs) {
@@ -219,7 +255,8 @@
 
   function renderDetalle(rs) {
     const lista = ordenadas(rs);
-    $('detalleResumen').textContent = `${lista.length} filas · ${H.fmtHoras(total(lista))} h`;
+    const ex = total(lista, 'horas_extra');
+    $('detalleResumen').textContent = `${lista.length} filas · ${H.fmtHoras(total(lista))} h${ex ? ` (${H.fmtHoras(ex)} extra)` : ''}`;
     const corto = s => s ? `${s.slice(8, 10)}/${s.slice(5, 7)} ${s.slice(11, 16)}` : '';
     $('detalle').innerHTML = lista.slice(0, mostrar).map(r => `<tr>
       <td class="num">${H.fmtFecha(r.fecha, { weekday: 'short', day: '2-digit', month: '2-digit' })}</td>
@@ -227,9 +264,10 @@
       <td>${H.esc(r.proyecto_codigo)} · ${H.esc(r.proyecto_nombre)}</td>
       <td>${H.esc(r.tarea)}</td>
       <td class="r num">${H.fmtHoras(r.horas)}</td>
+      <td class="r num txt-extra">${r.horas_extra ? H.fmtHoras(r.horas_extra) : ''}</td>
       <td class="nota">${H.esc(r.nota)}</td>
       <td class="num muted" title="${r.modificado_en ? 'Editado ' + H.esc(r.modificado_en) : ''}">${corto(r.cargado_en)}${r.modificado_en ? ' ✎' : ''}</td>
-    </tr>`).join('') || '<tr><td colspan="7" class="muted">Sin cargas en el período.</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="8" class="muted">Sin cargas en el período.</td></tr>';
     $('verMas').classList.toggle('hidden', lista.length <= mostrar);
   }
 
@@ -260,7 +298,7 @@
       rango = { desde: $('desde').value, hasta: $('hasta').value };
       cargar();
     }));
-    ['fPersona', 'fProyecto', 'fArea'].forEach(id => $(id).addEventListener('change', () => { mostrar = 100; render(); }));
+    ['fPersona', 'fProyecto', 'fArea', 'fRegimen'].forEach(id => $(id).addEventListener('change', () => { mostrar = 100; render(); }));
     $('actualizar').addEventListener('click', () => (periodo === 'rango' ? cargar() : elegirPeriodo(periodo)));
     $('verMas').addEventListener('click', () => { mostrar += 100; renderDetalle(filas()); });
     $('exportar').addEventListener('click', exportar);

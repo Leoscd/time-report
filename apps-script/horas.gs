@@ -7,10 +7,16 @@
  * la sesión, nunca de lo que manda el navegador. La Sheet queda privada: nadie del equipo necesita acceso.
  *
  * Pestañas:
- *   Personas   email, nombre, area, rol (empleado | gerente | admin), activo, horas_dia
+ *   Personas   email, nombre, area, rol (empleado | gerente | admin), activo, regimen
+ *   Regimenes  regimen, horas_dia (ej. "Full time" 8, "Part time" 4)
+ *   Feriados   fecha, nombre
  *   Proyectos  codigo, nombre, cliente, estado (activo | cerrado)
  *   Tareas     tarea
  *   Registros  la tabla de salida (una fila por persona, día, proyecto y tarea). No se edita a mano.
+ *
+ * Horas extra: cada día, las horas de una persona completan primero la jornada de su régimen, en el
+ * orden en que se cargaron, y lo que pasa de esa jornada es extra. Sábados, domingos y feriados no
+ * tienen jornada: todo es extra. Cada fila guarda su reparto en horas_normales y horas_extra.
  *
  * Instalación (una sola vez):
  *   1. Creá una Google Sheet nueva llamada "Horas Sáez Sánchez".
@@ -33,13 +39,19 @@ const HORAS_MAX_DIA = 16;
 const SESION_DIAS = 30;
 
 const H = {
-  personas: ['email', 'nombre', 'area', 'rol', 'activo', 'horas_dia'],
+  personas: ['email', 'nombre', 'area', 'rol', 'activo', 'regimen'],
+  regimenes: ['regimen', 'horas_dia'],
+  feriados: ['fecha', 'nombre'],
   proyectos: ['codigo', 'nombre', 'cliente', 'estado'],
   tareas: ['tarea'],
-  registros: ['id', 'fecha', 'email', 'nombre', 'area', 'proyecto_codigo', 'proyecto_nombre', 'tarea',
-    'horas', 'nota', 'cargado_en', 'modificado_en', 'estado'],
+  registros: ['id', 'fecha', 'email', 'nombre', 'area', 'regimen', 'proyecto_codigo', 'proyecto_nombre', 'tarea',
+    'horas', 'horas_normales', 'horas_extra', 'nota', 'cargado_en', 'modificado_en', 'estado'],
 };
-const HOJAS = { personas: 'Personas', proyectos: 'Proyectos', tareas: 'Tareas', registros: 'Registros' };
+const HOJAS = {
+  personas: 'Personas', regimenes: 'Regimenes', feriados: 'Feriados',
+  proyectos: 'Proyectos', tareas: 'Tareas', registros: 'Registros',
+};
+const REGIMEN_POR_DEFECTO = { regimen: 'Full time', horas_dia: 8 };
 
 // ---------- web ----------
 
@@ -135,7 +147,18 @@ function filas_(clave) {
 
 const verdadero_ = v => v === true || String(v).toUpperCase() === 'TRUE';
 
+function regimenes_() {
+  return filas_('regimenes')
+    .filter(r => String(r.regimen).trim())
+    .map(r => ({ regimen: String(r.regimen).trim(), horas_dia: Number(r.horas_dia) || 0 }));
+}
+
+function feriados_() {
+  return filas_('feriados').map(r => fecha_(r.fecha)).filter(f => /^\d{4}-\d{2}-\d{2}$/.test(f));
+}
+
 function personas_() {
+  const regs = regimenes_();
   return filas_('personas')
     .filter(r => String(r.email).trim() && verdadero_(r.activo))
     .map(r => ({
@@ -143,7 +166,7 @@ function personas_() {
       nombre: String(r.nombre).trim() || String(r.email).trim(),
       area: String(r.area).trim(),
       rol: ['gerente', 'admin'].includes(String(r.rol).trim().toLowerCase()) ? String(r.rol).trim().toLowerCase() : 'empleado',
-      horas_dia: Number(r.horas_dia) || 8,
+      ...(regs.find(x => x.regimen === String(r.regimen).trim()) || REGIMEN_POR_DEFECTO),
     }));
 }
 
@@ -175,10 +198,13 @@ function registros_() {
     email: String(r.email).toLowerCase(),
     nombre: String(r.nombre),
     area: String(r.area),
+    regimen: String(r.regimen),
     proyecto_codigo: String(r.proyecto_codigo),
     proyecto_nombre: String(r.proyecto_nombre),
     tarea: String(r.tarea),
     horas: Number(r.horas) || 0,
+    horas_normales: Number(r.horas_normales) || 0,
+    horas_extra: Number(r.horas_extra) || 0,
     nota: String(r.nota),
     cargado_en: momento_(r.cargado_en),
     modificado_en: momento_(r.modificado_en),
@@ -191,6 +217,7 @@ function datos_(p) {
     persona: p,
     proyectos: proyectos_().filter(x => x.activo),
     tareas: tareas_(),
+    feriados: feriados_(),
     hoy: hoy_(),
     dias_editables: p.rol === 'empleado' ? DIAS_EDITABLES : null,
   };
@@ -244,7 +271,7 @@ function guardar_(p, d) {
   const hoja = hojaRegistros_();
   const ahora = new Date();
   const fila = {
-    id, fecha, email: p.email, nombre: p.nombre, area: p.area,
+    id, fecha, email: p.email, nombre: p.nombre, area: p.area, regimen: p.regimen,
     proyecto_codigo: proyecto.codigo, proyecto_nombre: proyecto.nombre, tarea, horas, nota: limpiar_(nota),
     cargado_en: previo ? previo.cargado_en : ahora, modificado_en: '', estado: 'activo',
   };
@@ -252,10 +279,13 @@ function guardar_(p, d) {
     const igual = previo.fecha === fecha && previo.proyecto_codigo === proyecto.codigo && previo.tarea === tarea
       && previo.horas === horas && previo.nota === nota;
     if (igual) return { ok: true, registro: publico_(previo) };
-    fila.cargado_en = hoja.getRange(previo._fila, H.registros.indexOf('cargado_en') + 1).getValue();
+    fila.cargado_en = hoja.getRange(previo._fila, col_('cargado_en')).getValue();
     fila.modificado_en = ahora;
+    repartirDia_(hoja, todos, p, fecha, fila);
     hoja.getRange(previo._fila, 1, 1, H.registros.length).setValues([H.registros.map(c => fila[c])]);
+    if (previo.fecha !== fecha) repartirDia_(hoja, todos.filter(x => x.id !== id), p, previo.fecha, null);
   } else {
+    repartirDia_(hoja, todos, p, fecha, fila);
     hoja.appendRow(H.registros.map(c => fila[c]));
   }
   fila.cargado_en = momento_(fila.cargado_en);
@@ -271,9 +301,46 @@ function borrar_(p, id) {
   const v = validarFecha_(p, previo.fecha);
   if (v) return v;
   const hoja = hojaRegistros_();
-  hoja.getRange(previo._fila, H.registros.indexOf('modificado_en') + 1).setValue(new Date());
-  hoja.getRange(previo._fila, H.registros.indexOf('estado') + 1).setValue('borrado');
+  hoja.getRange(previo._fila, col_('modificado_en')).setValue(new Date());
+  hoja.getRange(previo._fila, col_('estado')).setValue('borrado');
+  repartirDia_(hoja, registros_().filter(x => x.id !== previo.id), p, previo.fecha, null);
   return { ok: true };
+}
+
+// Reparte las horas de un día de una persona: completan primero la jornada de su régimen, en el orden
+// en que se cargaron, y el resto es extra. `nueva` es la fila que se está por escribir (recibe su reparto);
+// las demás filas del día que cambian de reparto se reescriben en la hoja con su modificado_en.
+function repartirDia_(hoja, todos, p, fecha, nueva) {
+  const delDia = todos.filter(x => x.email === p.email && x.estado === 'activo' && x.fecha === fecha
+    && (!nueva || x.id !== nueva.id));
+  if (nueva) delDia.push(nueva);
+  const orden = r => momento_(r.cargado_en);
+  delDia.sort((a, b) => orden(a).localeCompare(orden(b)) || a.id.localeCompare(b.id));
+  let resta = jornada_(p, fecha);
+  const ahora = new Date();
+  delDia.forEach(r => {
+    const normales = Math.min(r.horas, Math.max(resta, 0));
+    const extra = r.horas - normales;
+    resta -= normales;
+    if (r === nueva) {
+      r.horas_normales = normales;
+      r.horas_extra = extra;
+    } else if (r.horas_normales !== normales || r.horas_extra !== extra) {
+      hoja.getRange(r._fila, col_('horas_normales'), 1, 2).setValues([[normales, extra]]);
+      hoja.getRange(r._fila, col_('modificado_en')).setValue(ahora);
+    }
+  });
+}
+
+// Horas de la jornada de esa persona ese día: 0 los sábados, domingos y feriados.
+function jornada_(p, fecha) {
+  const dia = new Date(fecha + 'T12:00:00Z').getUTCDay();
+  if (dia === 0 || dia === 6 || feriados_().includes(fecha)) return 0;
+  return p.horas_dia;
+}
+
+function col_(columna) {
+  return H.registros.indexOf(columna) + 1;
 }
 
 function dashboard_(p, desde, hasta) {
@@ -284,6 +351,8 @@ function dashboard_(p, desde, hasta) {
     ok: true,
     hoy: hoy_(),
     personas: personas_(),
+    regimenes: regimenes_(),
+    feriados: feriados_(),
     proyectos: proyectos_(),
     registros: registros_().filter(x => x.estado === 'activo' && x.fecha >= r.desde && x.fecha <= r.hasta).map(publico_),
   };
@@ -378,14 +447,24 @@ function configurar() {
   ss.setSpreadsheetTimeZone(ZONA);
   if (!PropertiesService.getScriptProperties().getProperty('SECRETO')) cerrarTodasLasSesiones();
 
+  crear_(ss, 'regimenes', [['Full time', 8], ['Part time', 4]], hoja => hoja.setColumnWidth(1, 200));
+
+  crear_(ss, 'feriados', [], hoja => {
+    hoja.getRange('A:A').setNumberFormat('yyyy-mm-dd');
+    hoja.setColumnWidth(2, 260);
+  });
+
   crear_(ss, 'personas', [
-    [ADMIN_EMAIL, 'Administrador', 'Sistemas', 'admin', true, 8],
-    ['', 'Gerente (completar)', 'Gerencia', 'gerente', true, 8],
-    ['', 'Empleado de ejemplo (completar)', 'Desarrollo de Proyectos', 'empleado', true, 8],
+    [ADMIN_EMAIL, 'Administrador', 'Sistemas', 'admin', true, 'Full time'],
+    ['', 'Gerente (completar)', 'Gerencia', 'gerente', true, 'Full time'],
+    ['', 'Empleado de ejemplo (completar)', 'Desarrollo de Proyectos', 'empleado', true, 'Full time'],
+    ['', 'Part time de ejemplo (completar)', 'Desarrollo de Proyectos', 'empleado', true, 'Part time'],
   ], hoja => {
     hoja.getRange('E2:E').insertCheckboxes();
     hoja.getRange('D2:D').setDataValidation(SpreadsheetApp.newDataValidation()
       .requireValueInList(['empleado', 'gerente', 'admin'], true).build());
+    hoja.getRange('F2:F').setDataValidation(SpreadsheetApp.newDataValidation()
+      .requireValueInRange(ss.getSheetByName(HOJAS.regimenes).getRange('A2:A'), true).build());
     hoja.setColumnWidth(1, 260);
     hoja.setColumnWidth(2, 200);
     hoja.setColumnWidth(3, 200);
@@ -408,8 +487,8 @@ function configurar() {
 
   crear_(ss, 'registros', [], hoja => {
     hoja.getRange('B:B').setNumberFormat('yyyy-mm-dd');
-    hoja.getRange('K:L').setNumberFormat('yyyy-mm-dd hh:mm:ss');
-    hoja.getRange('I:I').setNumberFormat('0.##');
+    hoja.getRange('J:L').setNumberFormat('0.##');
+    hoja.getRange('N:O').setNumberFormat('yyyy-mm-dd hh:mm:ss');
     const proteccion = hoja.protect().setDescription('La llena la app de horas. No editar a mano.');
     proteccion.setWarningOnly(true);
   });

@@ -1,6 +1,8 @@
 // Carga de horas: tira de la semana, día seleccionado y editor de filas.
 // Lo que se guarda sin señal queda en una cola en el dispositivo y se manda solo al volver la conexión.
 // El id de cada fila lo genera el teléfono, así un reintento nunca duplica la carga.
+// Horas extra: las horas del día completan primero la jornada del régimen de la persona, en el orden en
+// que se cargaron, y el resto es extra (mismo cálculo que el Apps Script). Sábados, domingos y feriados: todo extra.
 (() => {
   const H = window.Horas;
   const $ = id => document.getElementById(id);
@@ -37,6 +39,7 @@
     cola = H.local.leer(K.cola) || [];
     dia = hoy();
     semana = H.lunes(dia);
+    document.querySelector('.marca small').textContent = `${D.persona.nombre} · ${D.persona.regimen} ${H.fmtHoras(D.persona.horas_dia)} h`;
     conectarEventos();
     render();
     traerSemana(semana);
@@ -53,8 +56,23 @@
 
   const enCola = id => cola.some(op => op.datos.id === id);
   const delDia = f => Object.values(registros).filter(r => r.fecha === f)
-    .sort((a, b) => (a.cargado_en || '9').localeCompare(b.cargado_en || '9'));
+    .sort((a, b) => (a.cargado_en || '9').localeCompare(b.cargado_en || '9') || a.id.localeCompare(b.id));
   const totalDia = (f, excepto) => delDia(f).filter(r => r.id !== excepto).reduce((s, r) => s + Number(r.horas), 0);
+  const feriado = f => (D.feriados || []).includes(f);
+  const jornada = f => (H.esHabil(f) && !feriado(f) ? D.persona.horas_dia : 0);
+
+  // Horas extra de cada fila del día: id → horas que pasan la jornada.
+  function extras(f) {
+    const extra = {};
+    let resta = jornada(f);
+    delDia(f).forEach(r => {
+      const normales = Math.min(Number(r.horas), Math.max(resta, 0));
+      resta -= normales;
+      extra[r.id] = Number(r.horas) - normales;
+    });
+    return extra;
+  }
+
   const editable = f => f <= hoy() && (D.dias_editables == null || f >= H.sumarDias(hoy(), -D.dias_editables));
 
   // Trae del servidor la semana y la anterior (para "Repetir día anterior" y los días en rojo).
@@ -143,7 +161,6 @@
   function render() {
     if (!D) return;
     const h = hoy();
-    const hd = D.persona.horas_dia || 8;
 
     const fin = H.sumarDias(semana, 6);
     const corto = { day: 'numeric', month: 'short' };
@@ -154,12 +171,14 @@
     $('dias').innerHTML = Array.from({ length: 7 }, (_, i) => {
       const f = H.sumarDias(semana, i);
       const t = totalDia(f);
+      const j = jornada(f);
       const cls = ['dia'];
       if (f === dia) cls.push('sel');
-      if (!H.esHabil(f)) cls.push('finde');
-      if (t >= hd) cls.push('completo');
+      if (!j) cls.push('finde');
+      if (!j && t > 0) cls.push('extra');
+      else if (t >= j && t > 0) cls.push('completo');
       else if (t > 0) cls.push('parcial');
-      else if (H.esHabil(f) && f < h && traidas.has(H.lunes(f))) cls.push('falta');
+      else if (j && f < h && traidas.has(H.lunes(f))) cls.push('falta');
       return `<button type="button" class="${cls.join(' ')}" data-f="${f}" ${f > h ? 'disabled' : ''}>
         <span class="n">${H.fmtFecha(f, { weekday: 'short' }).replace('.', '')}</span>
         <span class="d">${H.deIso(f).getDate()}</span>
@@ -167,9 +186,16 @@
     }).join('');
 
     const total = totalDia(dia);
+    const j = jornada(dia);
+    const extraDia = Math.max(0, total - j);
     $('diaTitulo').textContent = (dia === h ? 'Hoy, ' : '') + (dia === h ? H.fmtFecha(dia) : cap(H.fmtFecha(dia)));
-    $('diaTotal').textContent = `${H.fmtHoras(total)} / ${H.fmtHoras(hd)} h`;
-    $('diaBarra').style.width = Math.min(100, total / hd * 100) + '%';
+    $('diaTotal').innerHTML = (j ? `${H.fmtHoras(total)} / ${H.fmtHoras(j)} h` : `${H.fmtHoras(total)} h`)
+      + (extraDia ? ` · <span class="txt-extra">${H.fmtHoras(extraDia)} h extra</span>` : '');
+    $('diaBarra').parentElement.classList.toggle('hidden', !j);
+    $('diaBarra').style.width = (j ? Math.min(100, total / j * 100) : 0) + '%';
+    $('diaNota').classList.toggle('hidden', !!j);
+    $('diaNota').textContent = j ? '' : `${feriado(dia) ? 'Feriado' : 'Fin de semana'}: no hay jornada, todas las horas cuentan como extra.`;
+    const extra = extras(dia);
 
     const puede = editable(dia);
     const filas = delDia(dia);
@@ -179,7 +205,7 @@
           <span class="proy">${H.esc(r.proyecto_nombre || r.proyecto_codigo)}${enCola(r.id) ? '<span class="pendiente">sin enviar</span>' : ''}</span>
           <span class="det">${H.esc(r.tarea)}${r.nota ? ' · ' + H.esc(r.nota) : ''}</span>
         </span>
-        <span class="hs num">${H.fmtHoras(r.horas)} h</span>
+        <span class="hs num">${H.fmtHoras(r.horas)} h${extra[r.id] ? `<small class="txt-extra">${H.fmtHoras(extra[r.id])} extra</small>` : ''}</span>
       </button>`).join('')
       : `<div class="vacio">${puede ? 'Todavía no cargaste horas este día.' : 'Sin horas cargadas.'}</div>`;
 
@@ -202,7 +228,7 @@
 
   function abrirEditor(reg) {
     editando = reg || null;
-    const resto = (D.persona.horas_dia || 8) - totalDia(dia, reg && reg.id);
+    const resto = jornada(dia) - totalDia(dia, reg && reg.id);
     const ult = Object.values(registros).sort((a, b) => (b.cargado_en || '').localeCompare(a.cargado_en || ''))[0];
     form = reg
       ? { proyecto_codigo: reg.proyecto_codigo, tarea: reg.tarea, horas: Number(reg.horas), nota: reg.nota || '' }
@@ -243,6 +269,13 @@
     $('rapidas').querySelectorAll('.chip').forEach(b => b.setAttribute('aria-pressed', Number(b.dataset.h) === form.horas));
     $('menos').disabled = form.horas <= PASO;
     $('mas').disabled = form.horas >= MAX_FILA;
+    const total = totalDia(dia, editando && editando.id) + form.horas;
+    const j = jornada(dia);
+    const extra = Math.max(0, total - j);
+    $('editorExtra').classList.toggle('hidden', !extra);
+    $('editorExtra').textContent = !extra ? ''
+      : j ? `El día queda en ${H.fmtHoras(total)} h: ${H.fmtHoras(extra)} h cuentan como extra (tu jornada es de ${H.fmtHoras(j)} h).`
+        : `Día sin jornada: ${H.fmtHoras(extra)} h extra.`;
   }
 
   function errorEditor(msj) {
