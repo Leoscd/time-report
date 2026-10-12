@@ -287,6 +287,118 @@
   }
 
   let conectado = false;
+  // ---------- proyectos: gerencia los agrega, edita, termina o borra sin abrir la Sheet ----------
+
+  let proyectosLista = [];
+  let vistaProy = 'activos';
+  let editandoProy = null;
+  let cambiaronProy = false;
+
+  async function abrirProyectos() {
+    cambiaronProy = false;
+    limpiarFormProy();
+    $('dlgProyectos').showModal();
+    $('pLista').innerHTML = '<tr><td colspan="5" class="muted">Cargando…</td></tr>';
+    try {
+      proyectosLista = (await H.llamar('proyectos')).proyectos;
+      pintarProyectos();
+    } catch (e) {
+      errorProy(e);
+    }
+  }
+
+  function pintarProyectos() {
+    const activos = proyectosLista.filter(p => p.activo);
+    const lista = proyectosLista.filter(p => p.activo === (vistaProy === 'activos'))
+      .sort((a, b) => a.codigo.localeCompare(b.codigo, 'es', { numeric: true }));
+    document.querySelectorAll('#pVista button').forEach(b => {
+      b.setAttribute('aria-pressed', b.dataset.v === vistaProy);
+      b.textContent = b.dataset.v === 'activos' ? `En curso (${activos.length})` : `Terminados (${proyectosLista.length - activos.length})`;
+    });
+    $('pLista').innerHTML = lista.map(p => `<tr>
+      <td class="num"><strong>${H.esc(p.codigo)}</strong></td>
+      <td>${H.esc(p.nombre)}</td>
+      <td class="muted">${H.esc(p.cliente)}</td>
+      <td class="r num">${p.horas ? H.fmtHoras(p.horas) : ''}</td>
+      <td class="acciones-proy">
+        <button type="button" class="btn chico plano" data-accion="editar" data-codigo="${H.esc(p.codigo)}">Editar</button>
+        <button type="button" class="btn chico" data-accion="${p.activo ? 'terminar' : 'reabrir'}" data-codigo="${H.esc(p.codigo)}">${p.activo ? 'Terminar' : 'Reabrir'}</button>
+        ${p.usado ? '' : `<button type="button" class="btn chico plano peligro" data-accion="borrar" data-codigo="${H.esc(p.codigo)}">Borrar</button>`}
+      </td></tr>`).join('')
+      || `<tr><td colspan="5" class="muted">${vistaProy === 'activos' ? 'No hay proyectos en curso.' : 'No hay proyectos terminados.'}</td></tr>`;
+  }
+
+  function limpiarFormProy() {
+    editandoProy = null;
+    $('pCodigo').value = '';
+    $('pNombre').value = '';
+    $('pCliente').value = '';
+    $('pCodigo').disabled = false;
+    $('pGuardar').textContent = '+ Agregar';
+    $('pCancelar').classList.add('hidden');
+    $('pError').classList.add('hidden');
+  }
+
+  function errorProy(e) {
+    $('pError').textContent = e instanceof H.SinConexion ? 'Sin conexión. Probá de nuevo.' : e.message;
+    $('pError').classList.remove('hidden');
+  }
+
+  // Manda un cambio; el servidor devuelve la lista actualizada.
+  async function cambiarProyecto(accion, datosProy) {
+    $('pError').classList.add('hidden');
+    try {
+      proyectosLista = (await H.llamar(accion, datosProy)).proyectos;
+      cambiaronProy = true;
+      pintarProyectos();
+      return true;
+    } catch (e) {
+      errorProy(e);
+      return false;
+    }
+  }
+
+  async function guardarProyecto() {
+    const datosProy = { codigo: $('pCodigo').value.trim(), nombre: $('pNombre').value.trim(), cliente: $('pCliente').value.trim(), nuevo: !editandoProy };
+    $('pGuardar').disabled = true;
+    const ok = await cambiarProyecto('proyecto_guardar', datosProy);
+    $('pGuardar').disabled = false;
+    if (ok) {
+      if (!editandoProy) vistaProy = 'activos';
+      limpiarFormProy();
+      pintarProyectos();
+      $('pCodigo').focus();
+    }
+  }
+
+  function accionProyecto(e) {
+    const b = e.target.closest('button[data-accion]');
+    if (!b) return;
+    const p = proyectosLista.find(x => x.codigo === b.dataset.codigo);
+    if (!p) return;
+    const nombre = `${p.codigo} · ${p.nombre}`;
+    if (b.dataset.accion === 'editar') {
+      editandoProy = p;
+      $('pCodigo').value = p.codigo;
+      $('pCodigo').disabled = true;
+      $('pNombre').value = p.nombre;
+      $('pCliente').value = p.cliente;
+      $('pGuardar').textContent = 'Guardar cambios';
+      $('pCancelar').classList.remove('hidden');
+      $('pNombre').focus();
+    } else if (b.dataset.accion === 'terminar') {
+      if (confirm(`¿Terminar ${nombre}? Deja de aparecer para cargar horas; las horas cargadas quedan.`)) {
+        cambiarProyecto('proyecto_estado', { codigo: p.codigo, estado: 'cerrado' });
+      }
+    } else if (b.dataset.accion === 'reabrir') {
+      cambiarProyecto('proyecto_estado', { codigo: p.codigo, estado: 'activo' });
+    } else if (b.dataset.accion === 'borrar') {
+      if (confirm(`¿Borrar ${nombre}? No tiene horas cargadas, así que se elimina del todo.`)) {
+        cambiarProyecto('proyecto_borrar', { codigo: p.codigo });
+      }
+    }
+  }
+
   function conectarEventos() {
     if (conectado) return;
     conectado = true;
@@ -302,6 +414,17 @@
     $('actualizar').addEventListener('click', () => (periodo === 'rango' ? cargar() : elegirPeriodo(periodo)));
     $('verMas').addEventListener('click', () => { mostrar += 100; renderDetalle(filas()); });
     $('exportar').addEventListener('click', exportar);
+    $('btnProyectos').addEventListener('click', abrirProyectos);
+    $('cerrarProyectos').addEventListener('click', () => $('dlgProyectos').close());
+    $('formProyecto').addEventListener('submit', e => { e.preventDefault(); guardarProyecto(); });
+    $('pCancelar').addEventListener('click', limpiarFormProy);
+    $('pLista').addEventListener('click', accionProyecto);
+    $('pVista').addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (b) { vistaProy = b.dataset.v; pintarProyectos(); }
+    });
+    // Al cerrar el panel, si hubo cambios se recarga el dashboard (filtros y nombres de proyectos).
+    $('dlgProyectos').addEventListener('close', () => { if (cambiaronProy) cargar(); });
     $('salir').addEventListener('click', H.salir);
     setInterval(() => { if (document.visibilityState === 'visible' && periodo !== 'rango') elegirPeriodo(periodo); }, 5 * 60000);
   }

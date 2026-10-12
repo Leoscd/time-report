@@ -168,6 +168,13 @@ dialog {
   border-radius: 20px 20px 0 0; background: var(--surface); color: var(--text);
 }
 @media (min-width: 600px) { dialog { margin: auto; border-radius: 20px; } }
+dialog.ancho { width: min(880px, 100%); }
+.nuevo-proyecto { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.nuevo-proyecto .campo { flex: 2 1 180px; }
+.nuevo-proyecto .campo.codigo { flex: 1 1 100px; }
+.nuevo-proyecto .botones { display: flex; gap: 8px; }
+.acciones-proy { text-align: right; }
+.acciones-proy .btn { margin-left: 4px; }
 dialog::backdrop { background: rgba(0, 0, 0, .45); }
 dialog form { padding: 20px 16px calc(16px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 16px; }
 dialog h2 { margin: 0; font-size: 19px; }

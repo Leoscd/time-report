@@ -399,11 +399,25 @@
     window.addEventListener('online', enviarCola);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState !== 'visible') return;
+      refrescarDatos();
       render();
       enviarCola();
       traerSemana(semana);
     });
     setInterval(enviarCola, 60000);
+  }
+
+  // Trae de nuevo la lista de proyectos (gerencia pudo sumar o terminar alguno) al volver a la app.
+  let ultimosDatos = Date.now();
+  async function refrescarDatos() {
+    if (Date.now() - ultimosDatos < 120000) return;
+    ultimosDatos = Date.now();
+    try {
+      const r = await H.llamar('datos');
+      D = Object.assign(D, r);
+      H.local.escribir('horas.datos', D);
+      render();
+    } catch (e) { /* sin señal: sigue con la lista guardada */ }
   }
 
   function moverSemana(n) {

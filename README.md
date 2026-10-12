@@ -31,13 +31,16 @@ App (Vercel)  ── POST ──▶  Apps Script (apps-script/horas.gs)  ──�
 | Personas | email, nombre, area, rol (`empleado` / `gerente` / `admin`), activo, regimen | Gerencia |
 | Regimenes | regimen, horas_dia (ej. `Full time` 8, `Part time` 4) | Gerencia |
 | Feriados | fecha, nombre | Gerencia |
-| Proyectos | codigo, nombre, cliente, estado (`activo` / `cerrado`) | Gerencia |
+| Proyectos | codigo, nombre, cliente, estado (`activo` / `cerrado`) | Gerencia, desde el dashboard |
 | Tareas | tarea | Gerencia |
 | Registros | la tabla de salida (abajo) | La app. No editar a mano |
 
 - **Sumar a alguien:** una fila en Personas con su email de Google y `activo` tildado.
 - **Sacar a alguien:** destildá `activo`. Sus registros quedan.
-- **Cerrar un proyecto:** `estado` = `cerrado`. Deja de aparecer para cargar y las horas quedan.
+- **Proyectos nuevos y terminados:** desde el dashboard, botón **Proyectos**: se agregan (código, nombre,
+  cliente), se editan, se terminan (`estado` = `cerrado`: dejan de aparecer para cargar y las horas quedan)
+  o se reabren. Solo se puede borrar un proyecto que nunca tuvo horas. La app de carga toma la lista
+  nueva al abrirse o al volver a ella. También se puede editar la pestaña a mano.
 - **Si se pierde un teléfono:** menú **Horas → Cerrar todas las sesiones**. Todos vuelven a entrar con Google.
 - Cada persona tiene un **régimen** (pestaña Regimenes) que fija su jornada en horas por día. Se pueden crear
   todos los que hagan falta (`Part time 6 h`, etc.). Una persona sin régimen válido cuenta como 8 h.

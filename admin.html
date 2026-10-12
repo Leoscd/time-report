@@ -65,6 +65,7 @@
         <label class="campo"><span>Área</span><select id="fArea"></select></label>
         <label class="campo"><span>Régimen</span><select id="fRegimen"></select></label>
         <button class="btn" id="actualizar" type="button">Actualizar</button>
+        <button class="btn primario" id="btnProyectos" type="button">Proyectos</button>
       </div>
       <p class="muted" id="estado" style="font-size:13px;margin:10px 0 0"></p>
     </section>
@@ -117,6 +118,35 @@
     </section>
   </div>
 </div>
+<dialog id="dlgProyectos" class="ancho">
+  <form method="dialog" id="formProyecto" novalidate>
+    <div class="cab-seccion">
+      <h2>Proyectos</h2>
+      <button class="btn chico plano" type="button" id="cerrarProyectos" aria-label="Cerrar">✕</button>
+    </div>
+    <p class="muted" style="margin:0;font-size:14px">Los proyectos en curso aparecen para cargar horas. Al terminar uno deja de aparecer, y sus horas quedan.</p>
+    <div class="nuevo-proyecto">
+      <label class="campo codigo"><span>Código</span><input type="text" id="pCodigo" maxlength="20" placeholder="P-031" autocomplete="off"></label>
+      <label class="campo"><span>Nombre</span><input type="text" id="pNombre" maxlength="120" placeholder="Ej.: Casa Las Lomas" autocomplete="off"></label>
+      <label class="campo"><span>Cliente</span><input type="text" id="pCliente" maxlength="120" placeholder="Opcional" autocomplete="off"></label>
+      <div class="botones">
+        <button class="btn hidden" type="button" id="pCancelar">Cancelar</button>
+        <button class="btn primario" type="submit" id="pGuardar">+ Agregar</button>
+      </div>
+    </div>
+    <p class="error hidden" id="pError" role="alert"></p>
+    <div class="segmentos" id="pVista">
+      <button type="button" data-v="activos">En curso</button>
+      <button type="button" data-v="cerrados">Terminados</button>
+    </div>
+    <div class="tabla-scroll">
+      <table>
+        <thead><tr><th>Código</th><th>Nombre</th><th>Cliente</th><th class="r">Horas</th><th></th></tr></thead>
+        <tbody id="pLista"></tbody>
+      </table>
+    </div>
+  </form>
+</dialog>
 <script src="assets/admin.js"></script>
 </body>
 </html>

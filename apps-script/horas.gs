@@ -28,7 +28,8 @@
  * Si después cambiás este código: Implementar → Gestionar implementaciones → editar → Versión nueva.
  *
  * Sumar a alguien: una fila en "Personas" con su email de Google y "activo" tildado.
- * Sacar a alguien: destildá "activo" (sus registros quedan). Cerrar un proyecto: estado "cerrado".
+ * Sacar a alguien: destildá "activo" (sus registros quedan).
+ * Proyectos: gerencia los agrega, edita, termina (estado "cerrado") o borra desde el dashboard, o acá a mano.
  */
 const CLIENT_ID = 'PEGAR_AQUI.apps.googleusercontent.com'; // OAuth Client ID (Google Cloud Console)
 const ADMIN_EMAIL = '';  // email de Google de quien administra: queda como admin al correr configurar()
@@ -76,6 +77,10 @@ function doPost(e) {
       case 'guardar': return json_(conLock_(() => guardar_(p, d)));
       case 'borrar': return json_(conLock_(() => borrar_(p, d.id)));
       case 'dashboard': return json_(dashboard_(p, d.desde, d.hasta));
+      case 'proyectos': return json_(listaProyectos_(p));
+      case 'proyecto_guardar': return json_(conLock_(() => guardarProyecto_(p, d)));
+      case 'proyecto_estado': return json_(conLock_(() => estadoProyecto_(p, d.codigo, d.estado)));
+      case 'proyecto_borrar': return json_(conLock_(() => borrarProyecto_(p, d.codigo)));
       default: return json_({ ok: false, error: 'accion_desconocida' });
     }
   } catch (err) {
@@ -358,6 +363,71 @@ function dashboard_(p, desde, hasta) {
   };
 }
 
+// ---------- proyectos (solo gerencia) ----------
+
+// Todos los proyectos, con las horas cargadas y si alguna carga los usó (los usados no se pueden borrar).
+function listaProyectos_(p) {
+  if (p.rol === 'empleado') return { ok: false, error: 'sin_acceso' };
+  const horas = {};
+  const usados = new Set();
+  registros_().forEach(r => {
+    usados.add(r.proyecto_codigo);
+    if (r.estado === 'activo') horas[r.proyecto_codigo] = (horas[r.proyecto_codigo] || 0) + r.horas;
+  });
+  return {
+    ok: true,
+    proyectos: proyectos_().map(x => Object.assign({}, x, { horas: horas[x.codigo] || 0, usado: usados.has(x.codigo) })),
+  };
+}
+
+// Crea un proyecto (d.nuevo) o cambia el nombre y el cliente de uno existente. El código no se cambia:
+// es lo que enlaza las horas ya cargadas.
+function guardarProyecto_(p, d) {
+  if (p.rol === 'empleado') return { ok: false, error: 'sin_acceso' };
+  const codigo = String(d.codigo || '').trim();
+  const nombre = String(d.nombre || '').trim().slice(0, 120);
+  const cliente = String(d.cliente || '').trim().slice(0, 120);
+  if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,19}$/.test(codigo)) {
+    return error_('El código lleva letras, números o guiones (hasta 20), por ejemplo P-031.');
+  }
+  if (!nombre) return error_('Falta el nombre del proyecto.');
+  const hoja = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(HOJAS.proyectos);
+  const existente = filas_('proyectos').find(r => String(r.codigo).trim().toLowerCase() === codigo.toLowerCase());
+  if (d.nuevo) {
+    if (existente) return error_(`Ya existe un proyecto con el código ${existente.codigo}.`);
+    const fila = Math.max(hoja.getLastRow(), 1) + 1;
+    hoja.getRange(fila, 1).setNumberFormat('@'); // que "024" no se convierta en 24
+    hoja.getRange(fila, 1, 1, 4).setValues([[codigo, limpiar_(nombre), limpiar_(cliente), 'activo']]);
+  } else {
+    if (!existente) return error_('Ese proyecto no existe.');
+    hoja.getRange(existente._fila, 2, 1, 2).setValues([[limpiar_(nombre), limpiar_(cliente)]]);
+  }
+  return listaProyectos_(p);
+}
+
+// Termina ('cerrado') o reabre ('activo') un proyecto. Uno terminado deja de aparecer para cargar horas.
+function estadoProyecto_(p, codigo, estado) {
+  if (p.rol === 'empleado') return { ok: false, error: 'sin_acceso' };
+  if (!['activo', 'cerrado'].includes(estado)) return error_('Estado no válido.');
+  const existente = filas_('proyectos').find(r => String(r.codigo).trim() === String(codigo || ''));
+  if (!existente) return error_('Ese proyecto no existe.');
+  SpreadsheetApp.getActiveSpreadsheet().getSheetByName(HOJAS.proyectos)
+    .getRange(existente._fila, H.proyectos.indexOf('estado') + 1).setValue(estado);
+  return listaProyectos_(p);
+}
+
+// Solo se borra un proyecto que nunca tuvo horas (por ejemplo, uno creado por error).
+function borrarProyecto_(p, codigo) {
+  if (p.rol === 'empleado') return { ok: false, error: 'sin_acceso' };
+  const existente = filas_('proyectos').find(r => String(r.codigo).trim() === String(codigo || ''));
+  if (!existente) return listaProyectos_(p);
+  if (registros_().some(r => r.proyecto_codigo === existente.codigo)) {
+    return error_('Ese proyecto tiene horas cargadas: no se puede borrar. Terminalo, así sus horas quedan.');
+  }
+  SpreadsheetApp.getActiveSpreadsheet().getSheetByName(HOJAS.proyectos).deleteRow(existente._fila);
+  return listaProyectos_(p);
+}
+
 // ---------- validaciones y utilidades ----------
 
 function validarFecha_(p, fecha) {
@@ -474,6 +544,7 @@ function configurar() {
     ['INT', 'Interno del estudio', 'Sáez Sánchez', 'activo'],
     ['P-000', 'Proyecto de prueba (borrar)', '', 'activo'],
   ], hoja => {
+    hoja.getRange('A:A').setNumberFormat('@');
     hoja.getRange('D2:D').setDataValidation(SpreadsheetApp.newDataValidation()
       .requireValueInList(['activo', 'cerrado'], true).build());
     hoja.setColumnWidth(2, 280);
