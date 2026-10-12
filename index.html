@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Horas · Sáez Sánchez</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#1f5c4b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Horas">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="assets/estilos.css">
+<script src="assets/config.js"></script>
+<script src="assets/api.js"></script>
+</head>
+<body>
+<div class="wrap">
+
+  <div id="vistaCargando" class="centro">
+    <div class="spinner" aria-label="Cargando"></div>
+  </div>
+
+  <div id="vistaAviso" class="centro hidden">
+    <img class="logo" src="icons/icon-192.png" alt="">
+    <h1 id="avisoTitulo"></h1>
+    <p id="avisoTexto"></p>
+  </div>
+
+  <div id="vistaLogin" class="centro hidden">
+    <img class="logo" src="icons/icon-192.png" alt="">
+    <h1>Horas · Sáez Sánchez</h1>
+    <p>Cargá en qué proyectos trabajaste cada día. Entrá con tu cuenta de Google.</p>
+    <div id="botonGoogle"></div>
+    <p id="loginError" class="error hidden" role="alert"></p>
+  </div>
+
+  <div id="vistaApp" class="hidden">
+    <header class="top">
+      <div class="marca">
+        <img src="icons/icon-192.png" alt="">
+        <div>Horas<small data-nombre></small></div>
+      </div>
+      <nav>
+        <a class="btn chico hidden" href="admin.html" data-solo-gerencia>Dashboard</a>
+        <button class="btn chico plano" id="salir" type="button">Salir</button>
+      </nav>
+    </header>
+
+    <div class="instalar hidden" id="instalar">
+      <p id="instalarTexto">Instalá la app para abrirla desde la pantalla de inicio.</p>
+      <button class="btn chico primario hidden" id="instalarBoton" type="button">Instalar</button>
+      <button class="btn chico plano" id="instalarCerrar" type="button" aria-label="Cerrar">✕</button>
+    </div>
+
+    <section aria-label="Semana">
+      <div class="semana-nav">
+        <button class="btn chico plano" id="semanaAnt" type="button" aria-label="Semana anterior">‹</button>
+        <strong id="semanaTitulo"></strong>
+        <button class="btn chico plano" id="semanaSig" type="button" aria-label="Semana siguiente">›</button>
+      </div>
+      <div class="dias" id="dias"></div>
+    </section>
+
+    <section aria-live="polite">
+      <div class="dia-cab">
+        <h1 id="diaTitulo"></h1>
+        <span class="total num" id="diaTotal"></span>
+      </div>
+      <div class="barra"><i id="diaBarra" style="width:0"></i></div>
+      <div class="filas" id="filas"></div>
+      <div class="acciones-dia" id="acciones">
+        <button class="btn primario" id="agregar" type="button">+ Agregar horas</button>
+        <button class="btn hidden" id="repetir" type="button">Repetir día anterior</button>
+      </div>
+      <p class="solo-lectura hidden" id="soloLectura"></p>
+    </section>
+  </div>
+</div>
+
+<dialog id="editor">
+  <form method="dialog" id="formEditor" novalidate>
+    <h2 id="editorTitulo">Agregar horas</h2>
+    <label class="campo">
+      <span>Proyecto</span>
+      <select id="fProyecto" required></select>
+    </label>
+    <div class="campo">
+      <span>Tarea</span>
+      <div class="chips" id="fTareas" role="group" aria-label="Tarea"></div>
+    </div>
+    <div class="campo">
+      <span>Horas</span>
+      <div class="horas-ctrl">
+        <button class="paso" type="button" id="menos" aria-label="Media hora menos">−</button>
+        <output class="valor num" id="fHoras">1</output>
+        <button class="paso" type="button" id="mas" aria-label="Media hora más">+</button>
+      </div>
+      <div class="chips" id="rapidas"></div>
+    </div>
+    <label class="campo">
+      <span>Nota (opcional)</span>
+      <input type="text" id="fNota" maxlength="500" placeholder="Ej.: láminas de carpinterías" autocomplete="off">
+    </label>
+    <p class="error err-dialogo hidden" id="editorError" role="alert"></p>
+    <div class="pie-dialogo">
+      <button class="btn peligro hidden" type="button" id="borrar">Borrar</button>
+      <span class="espacio"></span>
+      <button class="btn" type="button" id="cancelar">Cancelar</button>
+      <button class="btn primario" type="submit" id="guardar">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast hidden" id="toast" role="status"></div>
+<script src="assets/carga.js"></script>
+</body>
+</html>

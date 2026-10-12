@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dashboard · Horas Sáez Sánchez</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#1f5c4b">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="assets/estilos.css">
+<script src="assets/config.js"></script>
+<script src="assets/api.js"></script>
+</head>
+<body>
+<div class="wrap ancho">
+
+  <div id="vistaCargando" class="centro">
+    <div class="spinner" aria-label="Cargando"></div>
+  </div>
+
+  <div id="vistaAviso" class="centro hidden">
+    <img class="logo" src="icons/icon-192.png" alt="">
+    <h1 id="avisoTitulo"></h1>
+    <p id="avisoTexto"></p>
+    <p><a class="btn" href="./">Ir a cargar horas</a></p>
+  </div>
+
+  <div id="vistaLogin" class="centro hidden">
+    <img class="logo" src="icons/icon-192.png" alt="">
+    <h1>Dashboard de horas</h1>
+    <p>Para gerencia. Entrá con tu cuenta de Google.</p>
+    <div id="botonGoogle"></div>
+    <p id="loginError" class="error hidden" role="alert"></p>
+  </div>
+
+  <div id="vistaApp" class="hidden">
+    <header class="top">
+      <div class="marca">
+        <img src="icons/icon-192.png" alt="">
+        <div>Dashboard de horas<small data-nombre></small></div>
+      </div>
+      <nav>
+        <a class="btn chico" href="./">Cargar mis horas</a>
+        <button class="btn chico plano" id="salir" type="button">Salir</button>
+      </nav>
+    </header>
+
+    <section class="card" aria-label="Filtros">
+      <div class="filtros">
+        <div class="campo" style="flex:0 0 auto">
+          <span class="muted" style="font-size:14px;font-weight:600">Período</span>
+          <div class="segmentos" id="periodos">
+            <button type="button" data-p="hoy">Hoy</button>
+            <button type="button" data-p="semana">Semana</button>
+            <button type="button" data-p="mes">Mes</button>
+            <button type="button" data-p="rango">Rango</button>
+          </div>
+        </div>
+        <label class="campo hidden rango"><span>Desde</span><input type="date" id="desde"></label>
+        <label class="campo hidden rango"><span>Hasta</span><input type="date" id="hasta"></label>
+        <label class="campo"><span>Persona</span><select id="fPersona"></select></label>
+        <label class="campo"><span>Proyecto</span><select id="fProyecto"></select></label>
+        <label class="campo"><span>Área</span><select id="fArea"></select></label>
+        <button class="btn" id="actualizar" type="button">Actualizar</button>
+      </div>
+      <p class="muted" id="estado" style="font-size:13px;margin:10px 0 0"></p>
+    </section>
+
+    <div class="kpis" id="kpis"></div>
+
+    <section class="card" id="seccionHoy">
+      <div class="cab-seccion">
+        <h2>Hoy</h2>
+        <span class="muted" id="hoyResumen" style="font-size:14px"></span>
+      </div>
+      <div class="personas-hoy" id="personasHoy"></div>
+    </section>
+
+    <section class="card" id="seccionMatriz">
+      <div class="cab-seccion"><h2>Horas por persona y día</h2></div>
+      <div class="tabla-scroll"><table class="matriz" id="matriz"></table></div>
+      <div class="leyenda">
+        <span><i style="background:var(--ok-soft)"></i>Completo</span>
+        <span><i style="background:var(--warn-soft)"></i>Parcial</span>
+        <span><i style="background:var(--bad-soft)"></i>Sin carga</span>
+      </div>
+    </section>
+
+    <div class="grid-2">
+      <section class="card"><h2>Por proyecto</h2><div class="barras" id="porProyecto"></div></section>
+      <section class="card"><h2>Por persona</h2><div class="barras" id="porPersona"></div></section>
+      <section class="card"><h2>Por tarea</h2><div class="barras" id="porTarea"></div></section>
+    </div>
+
+    <section class="card" style="margin-top:12px">
+      <div class="cab-seccion">
+        <h2>Detalle</h2>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="muted num" id="detalleResumen" style="font-size:14px"></span>
+          <button class="btn chico primario" id="exportar" type="button">Exportar CSV</button>
+        </div>
+      </div>
+      <div class="tabla-scroll">
+        <table>
+          <thead><tr>
+            <th>Fecha</th><th>Persona</th><th>Proyecto</th><th>Tarea</th><th class="r">Horas</th><th>Nota</th><th>Cargado</th>
+          </tr></thead>
+          <tbody id="detalle"></tbody>
+        </table>
+      </div>
+      <button class="btn chico hidden" id="verMas" type="button" style="margin-top:10px">Ver más</button>
+    </section>
+  </div>
+</div>
+<script src="assets/admin.js"></script>
+</body>
+</html>
